@@ -1,12 +1,44 @@
-FROM zenika/alpine-chrome:83-with-node-12
+# syntax = docker/dockerfile:1
 
-USER root
-ENV NODE_ENV=production
-WORKDIR /src
+# Adjust NODE_VERSION as desired
+FROM node:latest as base
 
-COPY package*.json ./
+LABEL fly_launch_runtime="Node.js"
+
+# Node.js app lives here
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV="production"
+
+
+# Throw-away build stage to reduce size of final image
+FROM base as build
+
+# Install packages needed to build node modules
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y build-essential node-gyp pkg-config python-is-python3
+
+# Install node modules
+COPY --link package.json ./
 RUN npm install
 
-COPY . .
-EXPOSE 8080
-CMD ["node" , "index.js"]
+# Copy application code
+COPY --link . .
+
+
+# Final stage for app image
+FROM base
+
+# Install packages needed for deployment
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y chromium chromium-sandbox && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Copy built application
+COPY --from=build /app /app
+
+# Start the server by default, this can be overwritten at runtime
+EXPOSE 3004
+ENV PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium"
+CMD [ "npm", "run", "start" ]
